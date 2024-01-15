@@ -1,6 +1,6 @@
 # Liferay Stack Exchange Importer
  
-Python script that download archive data of stackexchange.com (https://archive.org/download/stackexchange) and import each post and its accepted answer as message categories, message threads and message boards in Liferay.
+Python script that download archive data of stackexchange.com (https://archive.org/download/stackexchange) and import each post and its accepted answer as message board categories & threads in Liferay.
 
 ## Requirements
 
