@@ -1,7 +1,6 @@
 from dotenv import load_dotenv
 import os
 import requests
-import re
 import py7zr
 from tqdm import tqdm
 from requests.auth import HTTPBasicAuth
