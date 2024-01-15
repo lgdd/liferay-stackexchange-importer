@@ -7,7 +7,7 @@ from requests.auth import HTTPBasicAuth
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-stackexchange_topics = ["ai", "beer", "coffee"]
+stackexchange_topics = []
 stackexchange_base_url = 'https://archive.org/download/stackexchange/'
 
 load_dotenv()
@@ -17,6 +17,13 @@ user_password = os.environ.get("LIFERAY_USER_PASSWORD")
 host = os.environ.get("LIFERAY_HOST")
 site_friendly_url = os.environ.get("LIFERAY_SITE_FRIENDLY_URL", "guest")
 basic_auth = HTTPBasicAuth(user_email, user_password)
+
+def get_topics():
+    topics = []
+    with open('topics.txt', 'r') as file:
+        for line in file:
+            topics.append(line.strip())
+    return topics
 
 def download_file(url, filename):
     response = requests.get(url, stream=True)
@@ -44,11 +51,7 @@ def extract_file_from_archive(archive_path, file_to_extract, extract_path):
         else:
             raise Exception(f"File {file_to_extract} not found in the archive.")
         
-def download_stackexchange_topics():
-    topics = []
-    with open('topics.txt', 'r') as file:
-        for line in file:
-            topics.append(line.strip())
+def download_stackexchange_topics(topics):
     for topic in topics:
         archive_name = f'{topic}.stackexchange.com.7z'
         url = stackexchange_base_url + archive_name
@@ -175,6 +178,7 @@ def parse_posts_xml(file_path):
 try:
     data_folder = Path("data")
     data_folder.mkdir(parents=True, exist_ok=True)
+    stackexchange_topics = get_topics()
     download_stackexchange_topics()
     site_id = fetch_site_id()
     existing_folders = fetch_existing_sections(site_id)
