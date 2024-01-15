@@ -1,8 +1,11 @@
 from dotenv import load_dotenv
 import os
 import requests
+import aiohttp
+import asyncio
 import py7zr
 from tqdm import tqdm
+from tqdm.asyncio import tqdm_asyncio
 from requests.auth import HTTPBasicAuth
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -61,7 +64,7 @@ def download_stackexchange_topics(topics):
         if not archive_path.exists():
             download_file(url, archive_path)
         else:
-            print("Archive already exists. Proceeding to extraction.")
+            print(f"'{archive_name}' already exists. Proceeding to extraction.")
         file_to_extract = 'Posts.xml'
         extract_path =  Path("data") / f'{topic}.stackexchange.com'
 
@@ -93,6 +96,7 @@ def fetch_existing_sections(site_id):
         raise Exception(f"[status={response.status_code}] Failed to fetch message board sections from site with ID = {site_id}")
 
 def create_section(section_name):
+    print(f"Creating {section_name}...")
     url = f"{host}/o/headless-delivery/v1.0/sites/{site_id}/message-board-sections"
     payload = {
         "title": section_name
@@ -106,39 +110,26 @@ def create_section(section_name):
     else:
         raise Exception(f"[status={response.status_code}] Failed to message board section for site with ID = {site_id}")
 
-def fetch_existing_threads(section_id):
+def fetch_existing_thread_titles(section_id):
+    print("Fetching existing message board threads to avoid duplicates...")
     url = f"{host}/o/headless-delivery/v1.0/message-board-sections/{section_id}/message-board-threads"
-    response = requests.get(url, auth=basic_auth)
+    existing_threads = []
+    page = 1
+    pageSize = 60
+    total_count = float('inf')
 
-    if response.status_code == 200:
-        existing_threads = {}
-        data = response.json()
-        for content in data.get("items"):
-            existing_threads[content.get("headline")] = content.get("id")
-        return existing_threads
-    else:
-        raise Exception(f"[status={response.status_code}] Failed to fetch contents from folder with ID={section_id}")
+    while len(existing_threads) < total_count:
+        response = requests.get(url, params={'page': page, "pageSize": pageSize}, auth=basic_auth)
 
-def create_thread(section_id, title, body, answer):
-    url = f"{host}/o/headless-delivery/v1.0/message-board-sections/{section_id}/message-board-threads"
-    payload = {
-        "headline": title,
-        "articleBody": body,
-        "showAsQuestion": True,
-        "encodingFormat": "html"
-    }
+        if response.status_code == 200:
+            data = response.json()
+            total_count = data.get('totalCount', 0)
+            existing_threads.extend([content.get("headline") for content in data.get("items", [])])
+            page += 1
+        else:
+            raise Exception(f"[status={response.status_code}] Failed to fetch contents from folder with ID={section_id}")
 
-    response = requests.post(url, json=payload, auth=basic_auth, headers={'Content-Type': 'application/json'})
-    if response.status_code == 200:
-        data = response.json()
-        thread_id = data.get("id")
-        if answer is not None:
-            create_thread_answer(thread_id, answer)
-    else:
-        raise Exception(f"[status={response.status_code}] Failed to thread for section with ID={section_id}:\n{response.text}")
-
-# def create_threads_in_bulk():
-
+    return existing_threads
 
 def create_thread_answer(thread_id, answer):
     url = f"{host}/o/headless-delivery/v1.0/message-board-threads/{thread_id}/message-board-messages"
@@ -154,6 +145,39 @@ def create_thread_answer(thread_id, answer):
         thread_id = data.get("id")
     else:
         raise Exception(f"[status={response.status_code}] Failed to create thread answer for thread with ID={thread_id}:\n{response.text}")
+
+async def create_thread_async(semaphore, session, section_id, title, body, answer):
+    async with semaphore:
+        url = f"{host}/o/headless-delivery/v1.0/message-board-sections/{section_id}/message-board-threads"
+        payload = {
+            "headline": title,
+            "articleBody": body,
+            "showAsQuestion": True,
+            "encodingFormat": "html"
+        }
+
+        async with session.post(url, json=payload, headers={'Content-Type': 'application/json'}) as response:
+            if response.status == 200:
+                data = await response.json()
+                thread_id = data.get("id")
+                if answer is not None:
+                    create_thread_answer(thread_id, answer)
+            else:
+                raise Exception(f"[status={response.status}] Failed to thread for section with ID={section_id}:\n{await response.text()}")
+
+async def create_threads_async(folder_id, posts):
+    async with aiohttp.ClientSession(auth=aiohttp.BasicAuth(user_email, user_password)) as session:
+        semaphore = asyncio.Semaphore(10)
+        tasks = []
+        for post in posts.values():
+            title = post.get('Title')
+            body = post.get('Body')
+            answer = post.get('AcceptedAnswerBody', None)
+            task = create_thread_async(semaphore, session, folder_id, title, body, answer)
+            tasks.append(task)
+
+        for task in tqdm_asyncio.as_completed(tasks, desc=f"Uploading {topic_name} data"):
+            await task
 
 def parse_posts_xml(file_path):
     tree = ET.parse(file_path)
@@ -184,29 +208,26 @@ try:
     stackexchange_topics = get_topics()
     download_stackexchange_topics(stackexchange_topics)
     site_id = fetch_site_id()
-    existing_folders = fetch_existing_sections(site_id)
-    folders_to_create = []
+    existing_sections = fetch_existing_sections(site_id)
+    sections = {}
     for topic in stackexchange_topics:
-        topic_folder_name = f'{topic}.stackexchange.com'
-        if topic_folder_name in existing_folders:
-            print(f"Category '{topic_folder_name}' already exists with ID = {existing_folders[topic_folder_name]}")
+        topic_name = f'{topic}.stackexchange.com'
+        if topic_name not in existing_sections:
+            section_id = create_section(topic_name)
+            sections[topic_name] = section_id
         else:
-            folders_to_create.append(topic_folder_name)
-            print(f"Category to create: {topic_folder_name}")
-    for folder in folders_to_create:
-        folder_id = create_section(folder)
-        existing_folders[folder] = folder_id
-    requests.get(f"{host}/o/healdess")
-    for folder_name, folder_id in existing_folders.items():
-        posts = parse_posts_xml(os.path.join("data", folder_name, "Posts.xml"))
-        print(f"{folder_name} has {len(posts)} posts")
-        existing_contents = fetch_existing_threads(folder_id)
+            sections[topic_name] = existing_sections[topic_name]
+    for topic_name, section_id in sections.items():
+        posts = parse_posts_xml(os.path.join("data", topic_name, "Posts.xml"))
+        print(f"{topic_name} has {len(posts)} posts")
+        existing_thread_titles = fetch_existing_thread_titles(section_id)
         posts_to_create = {}
         for post_id, post in posts.items():
-            if post.get('Title') not in existing_contents:
+            if post.get('Title') not in existing_thread_titles:
                 posts_to_create[post_id] = post
-        for post in tqdm(posts_to_create.values(), desc=f"Uploading {folder_name} data"):
-                create_thread(folder_id, post.get('Title'), post.get('Body'), post.get('AcceptedAnswerBody', None))
+
+        print(f"{topic_name} has {len(posts_to_create)} posts to create")
+        asyncio.run(create_threads_async(section_id, posts_to_create))
 
 except Exception as e:
     print(str(e))
