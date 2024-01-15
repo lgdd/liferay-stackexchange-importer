@@ -137,6 +137,9 @@ def create_thread(section_id, title, body, answer):
     else:
         raise Exception(f"[status={response.status_code}] Failed to thread for section with ID={section_id}:\n{response.text}")
 
+# def create_threads_in_bulk():
+
+
 def create_thread_answer(thread_id, answer):
     url = f"{host}/o/headless-delivery/v1.0/message-board-threads/{thread_id}/message-board-messages"
     payload = {
@@ -198,8 +201,11 @@ try:
         posts = parse_posts_xml(os.path.join("data", folder_name, "Posts.xml"))
         print(f"{folder_name} has {len(posts)} posts")
         existing_contents = fetch_existing_threads(folder_id)
-        for post in tqdm(posts.values(), desc=f"Uploading {folder_name} data"):
-            if not post.get('Title') in existing_contents:
+        posts_to_create = {}
+        for post_id, post in posts.items():
+            if post.get('Title') not in existing_contents:
+                posts_to_create[post_id] = post
+        for post in tqdm(posts_to_create.values(), desc=f"Uploading {folder_name} data"):
                 create_thread(folder_id, post.get('Title'), post.get('Body'), post.get('AcceptedAnswerBody', None))
 
 except Exception as e:
