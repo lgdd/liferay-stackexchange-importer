@@ -5,6 +5,7 @@ Python script that download archive data of stackexchange.com (https://archive.o
 ## Requirements
 
 Python 3.10+
+Liferay DXP/Portal u92+/ga92+
 
 ## Usage
 
