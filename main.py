@@ -179,7 +179,7 @@ try:
     data_folder = Path("data")
     data_folder.mkdir(parents=True, exist_ok=True)
     stackexchange_topics = get_topics()
-    download_stackexchange_topics()
+    download_stackexchange_topics(stackexchange_topics)
     site_id = fetch_site_id()
     existing_folders = fetch_existing_sections(site_id)
     folders_to_create = []
