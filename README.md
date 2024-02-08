@@ -10,7 +10,7 @@ Python script that download archive data of stackexchange.com (https://archive.o
 ## Usage
 
 ```
-pip isntall -r requirements.txt
+pip install -r requirements.txt
 python main.py
 ```
 
